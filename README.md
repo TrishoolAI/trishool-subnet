@@ -76,6 +76,17 @@ Trishool is designed to advance AI safety by creating a decentralized platform f
    ```
 
 2. **Set environment variables**:
+   
+   The easiest way is to use the `.env.example` file:
+   ```bash
+   # Copy the example file
+   cp .env.example .env
+   
+   # Edit .env with your actual values
+   # Use your preferred editor (nano, vim, VS Code, etc.)
+   ```
+   
+   Alternatively, you can set environment variables manually:
    ```bash
    # API Keys (Required for Petri)
    export CHUTES_API_KEY=your_chutes_api_key_here
@@ -84,7 +95,7 @@ Trishool is designed to advance AI safety by creating a decentralized platform f
    export COLDKEY_NAME=your_coldkey_name  # Bittensor coldkey for authentication
    export HOTKEY_NAME=your_hotkey_name  # Bittensor hotkey for authentication
    export NETWORK=finney  # Bittensor network (default: finney)
-   export NETUID=  # Subnet UID (default: 291 for testing)
+   export NETUID=35  # Subnet UID (default: 35)
    
    # Validator Configuration
    export MAX_CONCURRENT_SANDBOXES=5  # Max concurrent sandboxes (default: 5)
@@ -95,6 +106,8 @@ Trishool is designed to advance AI safety by creating a decentralized platform f
    # Petri Commit Checker
    export PETRI_COMMIT_CHECK_INTERVAL=300  # Interval to check for repo updates (seconds, default: 5 minutes)
    ```
+   
+   See `.env.example` for a complete list of all available environment variables with descriptions.
 
 ### Running the Validator
 ```bash
