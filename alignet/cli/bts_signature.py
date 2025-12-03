@@ -82,7 +82,7 @@ def build_pair_auth_payload(
 # def main(args):
 #     payload = _build_pair_auth_payload(
 #         network="finney",
-#         netuid=35,
+#         netuid=23,
 #         slot="1",
 #         wallet_name=args.coldkey_name,
 #         wallet_hotkey=args.hotkey_name,

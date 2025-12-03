@@ -80,7 +80,7 @@ class Validator(BaseValidatorNeuron):
         coldkey_name = os.getenv("COLDKEY_NAME")
         hotkey_name = os.getenv("HOTKEY_NAME")
         network = os.getenv("NETWORK", "finney")
-        netuid = int(os.getenv("NETUID", "35"))
+        netuid = int(os.getenv("NETUID", "23"))
         
         self.api_client = PlatformAPIClient(
             platform_api_url=platform_api_url,
@@ -240,7 +240,7 @@ class Validator(BaseValidatorNeuron):
                 models=petri_config_response.get("models", []),
                 auditor=petri_config_response.get("auditor", ""),
                 judge=petri_config_response.get("judge", ""),
-                max_turns=petri_config_response.get("max_turns", 10),
+                max_turns=petri_config_response.get("max_turns", 30),
                 output_dir="./outputs",
                 temp_dir="./temp",
                 cleanup=False,
@@ -288,7 +288,7 @@ class Validator(BaseValidatorNeuron):
                     "seed": config_dict.get("seed", ""),
                     "auditor": config_dict.get("auditor", ""),
                     "judge": config_dict.get("judge", ""),
-                    "max_turns": config_dict.get("max_turns", 5),
+                    "max_turns": config_dict.get("max_turns", 30),
                 },
                 "results": petri_output_json.get("results", []),
                 "summary": petri_output_json.get("summary", {}),
@@ -305,7 +305,7 @@ class Validator(BaseValidatorNeuron):
                     "seed": config_dict.get("seed", ""),
                     "auditor": config_dict.get("auditor", ""),
                     "judge": config_dict.get("judge", ""),
-                    "max_turns": config_dict.get("max_turns", 5),
+                    "max_turns": config_dict.get("max_turns", 30),
                 },
                 "results": [],
                 "summary": {
@@ -449,20 +449,21 @@ class Validator(BaseValidatorNeuron):
             sandbox_thread.start()
             
             # Wait for sandbox to complete
-            max_wait_time = 600  # 10 minutes
-            sandbox_thread.join(timeout=max_wait_time + 60)
+            # max_wait_time = 600  # 10 minutes
+            # sandbox_thread.join(timeout=max_wait_time + 60)
+            sandbox_thread.join()
             
             # Remove from active sandboxes
             if submission.submission_id in self.active_sandboxes:
                 del self.active_sandboxes[submission.submission_id]
             
-            # Check if sandbox timed out
-            if sandbox_thread.is_alive():
-                logger.warning(f"Sandbox timeout for submission {submission.submission_id}")
-                submission.update_status(SubmissionStatus.FAILED)
-                # Submit failed evaluation to platform
-                await self._submit_failed_evaluation(submission, "Sandbox execution timeout", sandbox_result.get("logs"))
-                return
+            # # Check if sandbox timed out
+            # if sandbox_thread.is_alive():
+            #     logger.warning(f"Sandbox timeout for submission {submission.submission_id}")
+            #     submission.update_status(SubmissionStatus.FAILED)
+            #     # Submit failed evaluation to platform
+            #     await self._submit_failed_evaluation(submission, "Sandbox execution timeout", sandbox_result.get("logs"))
+            #     return
             
             # Check results
             if sandbox_result["error"]:
@@ -720,7 +721,7 @@ class Validator(BaseValidatorNeuron):
         models: List[str] = None,
         auditor: str = None,
         judge: str = None,
-        max_turns: int = 5,
+        max_turns: int = 30,
     ) -> MinerSubmission:
         """
         Create a fake submission for testing Petri without Platform API.
@@ -737,7 +738,7 @@ class Validator(BaseValidatorNeuron):
             models: List of target models (default: test models)
             auditor: Auditor model (default: test auditor)
             judge: Judge model (default: test judge)
-            max_turns: Maximum turns (default: 5)
+            max_turns: Maximum turns (default: 30)
             
         Returns:
             Created MinerSubmission object
