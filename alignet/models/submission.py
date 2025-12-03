@@ -37,7 +37,7 @@ class MinerSubmission(BaseModel):
     models: List[str] = Field(description="List of target models to evaluate")
     auditor: str = Field(description="Auditor model name")
     judge: str = Field(description="Judge model name")
-    max_turns: int = Field(default=5, description="Maximum turns for evaluation")
+    max_turns: int = Field(default=30, description="Maximum turns for evaluation")
     output_dir: str = Field(default="outputs", description="Output directory")
     temp_dir: str = Field(default="./temp", description="Temp directory")
     cleanup: bool = Field(default=False, description="Cleanup after evaluation")

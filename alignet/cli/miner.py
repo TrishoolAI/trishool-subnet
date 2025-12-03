@@ -11,7 +11,7 @@ Usage:
         --coldkey ckorintest1 \
         --hotkey hk1 \
         --network finney \
-        --netuid 35 \
+        --netuid 23 \
         --slot 1 \
         --api-url http://localhost:8000
 """
@@ -145,7 +145,7 @@ class MinerCLI:
         hotkey: str,
         coldkey: str,
         network: str = "finney",
-        netuid: int = 35,
+        netuid: int = 23,
         slot: str = "1",
     ) -> dict:
         """
