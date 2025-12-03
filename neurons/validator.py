@@ -129,7 +129,7 @@ class Validator(BaseValidatorNeuron):
                 await self.commit_checker.check_and_rebuild()
             
             # Start evaluation loop background task
-            # await self._evaluation_loop()
+            await self._evaluation_loop()
             logger.info("Evaluation loop started")
             
             await self._update_weights()
