@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+*.venv
+
+# Env files
+*.env
+*.db
+*.db.bak
+
+# MacOS
+.DS_Store
+
+# Logging
+logs.json
+logs_mineshaft/
+
+# IDEs
+.idea/
+
+# Results
+logs/
+results/
+outputs/
+astro-petri/
+saved_petri_config/
+score_submissions/**/*.json
