@@ -95,7 +95,7 @@ Trishool is designed to advance AI safety by creating a decentralized platform f
    export COLDKEY_NAME=your_coldkey_name  # Bittensor coldkey for authentication
    export HOTKEY_NAME=your_hotkey_name  # Bittensor hotkey for authentication
    export NETWORK=finney  # Bittensor network (default: finney)
-   export NETUID=35  # Subnet UID (default: 35)
+   export NETUID=23  # Subnet UID (default: 23)
    
    # Validator Configuration
    export MAX_CONCURRENT_SANDBOXES=5  # Max concurrent sandboxes (default: 5)

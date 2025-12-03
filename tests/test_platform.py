@@ -19,7 +19,7 @@ COLDKEY_NAME = "ckorintest1"
 HOTKEY_NAME = "hk2"
 PLATFORM_API_URL = "http://34.59.172.160:8000"
 NETWORK = "finney"
-NETUID = 35
+NETUID = 23
 SLOT = "1"
 
 

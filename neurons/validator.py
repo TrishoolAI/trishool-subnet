@@ -80,7 +80,7 @@ class Validator(BaseValidatorNeuron):
         coldkey_name = os.getenv("COLDKEY_NAME")
         hotkey_name = os.getenv("HOTKEY_NAME")
         network = os.getenv("NETWORK", "finney")
-        netuid = int(os.getenv("NETUID", "35"))
+        netuid = int(os.getenv("NETUID", "23"))
         
         self.api_client = PlatformAPIClient(
             platform_api_url=platform_api_url,

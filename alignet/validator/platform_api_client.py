@@ -33,7 +33,7 @@ class PlatformAPIClient:
         coldkey_name: Optional[str] = None,
         hotkey_name: Optional[str] = None,
         network: str = "finney",
-        netuid: int = 35,
+        netuid: int = 23,
     ):
         """
         Initialize the REST API client.
@@ -43,7 +43,7 @@ class PlatformAPIClient:
             coldkey_name: Coldkey name for authentication
             hotkey_name: Hotkey name for authentication
             network: Bittensor network (default: finney)
-            netuid: Subnet UID (default: 35)
+            netuid: Subnet UID (default: 23)
         """
         self.platform_api_url = platform_api_url.rstrip('/')
         self.coldkey_name = coldkey_name or os.getenv("COLDKEY_NAME")
