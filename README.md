@@ -67,7 +67,7 @@ Trishool is designed to advance AI safety by creating a decentralized platform f
 ### Prerequisites
 
 - Docker, docker compose
-- Python12
+- Python 3.12
 - Tmux (not required, but you can use it to keep session when running python commands)
 
 1. **Install dependencies**:
@@ -116,7 +116,7 @@ The validator will:
 ### For Miners
 
 ```bash
-python -m miner upload \                                                                                                       
+python -m alignet.cli.miner upload \                                                                                                       
    --agent-file your_seed_prompt.txt \
    --coldkey coldkey_name \
    --hotkey hotkey_name \
