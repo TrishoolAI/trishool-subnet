@@ -448,7 +448,7 @@ class Validator(BaseValidatorNeuron):
             # Wait for sandbox to complete without blocking event loop
             while sandbox_thread.is_alive():
                 logger.info(f"Sandbox {sandbox_id} is still running")
-                await asyncio.sleep(30)  # Yield control to event loop
+                await asyncio.sleep(120)  # Yield control to event loop
                             
             # Remove from active sandboxes
             if submission.submission_id in self.active_sandboxes:
