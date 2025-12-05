@@ -333,7 +333,7 @@ class SandboxManager:
             for log_chunk in log_stream:
                 log_line = log_chunk.decode('utf-8').strip()
                 if log_line:
-                    print(f"[SANDBOX] {log_line}")
+                    logger.info(f"[SANDBOX-{sandbox_id}] {log_line}")
                     logs_buffer.append(log_line)
         except Exception as e:
             logger.warning(f"[SANDBOX] Log streaming interrupted: {e}")
