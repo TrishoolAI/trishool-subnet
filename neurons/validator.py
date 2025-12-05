@@ -105,7 +105,13 @@ class Validator(BaseValidatorNeuron):
         self.max_concurrent_sandboxes = int(os.getenv("MAX_CONCURRENT_SANDBOXES", "5"))
         self.evaluation_interval = int(os.getenv("EVALUATION_INTERVAL", "30"))  # seconds
         self.random_selection_count = int(os.getenv("RANDOM_SELECTION_COUNT", "3"))  # Number of submissions to select randomly
-        self.update_weights_interval = int(os.getenv("UPDATE_WEIGHTS_INTERVAL", "300"))  # 5 minutes default
+        self.update_weights_interval = int(os.getenv("UPDATE_WEIGHTS_INTERVAL", "120"))  # 2 minutes default
+        
+        # Weight update loop state
+        self.weight_update_task: Optional[asyncio.Task] = None
+        self.should_stop_weight_update = False
+        # Start weight update loop as background task (runs independently)
+
         logger.info("Alignet Validator initialized successfully")
 
     async def forward(self):
@@ -118,7 +124,7 @@ class Validator(BaseValidatorNeuron):
         - Fetches submissions from platform API
         - Processes submissions and executes challenges with Petri agent
         - Submits scores back to platform
-        - Updates weights from platform API periodically
+        - Starts weight update loop that runs independently every 2 minutes
         """
         try:
             # Check and rebuild Petri commit checker
@@ -128,13 +134,11 @@ class Validator(BaseValidatorNeuron):
                 logger.info("Petri commit checker checked and rebuilt")
                 await self.commit_checker.check_and_rebuild()
             
-            # Start evaluation loop background task
-            await self._evaluation_loop()
+            # Start weight update loop as background task (runs independently)
+            self._start_weight_update_loop()
             logger.info("Evaluation loop started")
+            await self._evaluation_loop()
             
-            await self._update_weights()
-            logger.info("Healthcheck started")
-            await self.api_client.healthcheck()
             await asyncio.sleep(30)
                     
         except Exception as e:
@@ -192,7 +196,6 @@ class Validator(BaseValidatorNeuron):
                     
                 except Exception as e:
                     logger.error(f"Error in evaluation loop iteration {i+1}: {str(e)}")
-                    traceback.print_exc()
                     continue
             
             # Wait for all tasks to complete before exiting
@@ -208,7 +211,6 @@ class Validator(BaseValidatorNeuron):
             logger.info("Evaluation loop cancelled")
         except Exception as e:
             logger.error(f"Fatal error in evaluation loop: {str(e)}")
-            traceback.print_exc(e)
             return None
     
     def _create_submission_from_petri_config(self, petri_config_response: Dict[str, Any]) -> Optional[MinerSubmission]:
@@ -613,35 +615,77 @@ class Validator(BaseValidatorNeuron):
             # Try to submit failed evaluation
             await self._submit_failed_evaluation(submission, f"Error during scoring: {str(e)}", logs)
     
+    def _start_weight_update_loop(self) -> None:
+        """
+        Start background task for periodic weight updates.
+        This task runs independently from _evaluation_loop() and updates weights every update_weights_interval seconds.
+        """
+        if self.weight_update_task is not None and not self.weight_update_task.done():
+            logger.info("Weight update loop is already running")
+            return
+        
+        self.should_stop_weight_update = False
+        self.weight_update_task = asyncio.create_task(self._weight_update_loop())
+        logger.info("Weight update loop task created")
+    
+    async def _weight_update_loop(self) -> None:
+        """
+        Background loop that periodically updates weights from platform API.
+        Runs every update_weights_interval seconds (default: 2 minutes).
+        This loop runs independently from _evaluation_loop().
+        """
+        logger.info(f"Weight update loop started, will run every {self.update_weights_interval} seconds")        
+        while not self.should_stop_weight_update:
+            try:
+                # Wait for the interval, but allow cancellation
+                await asyncio.sleep(self.update_weights_interval)
+                
+                if self.should_stop_weight_update:
+                    break
+                await self._update_weights()
+                await self.api_client.healthcheck()
+                logger.info("Healthcheck completed")
+            except asyncio.CancelledError:
+                logger.info("Weight update loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in weight update loop: {str(e)}")
+                # Continue loop even if there's an error
+                continue
+        
+        logger.info("Weight update loop stopped")
+    
     async def _update_weights(self) -> None:
         """
-        Background task that periodically:
+        Fetches weights from platform API and sets them on chain.
+        
+        This method:
         1. Fetches weights from platform API
         2. Maps weights to metagraph uids using hotkeys
         3. Updates self.scores with platform weights
         4. Calls set_weights() to set weights on chain
         """
-        logger.info("Updating weights")        
-        # try:
-        # Sync metagraph first to ensure we have latest UID mappings
-        self.resync_metagraph()
-        logger.info("Synced metagraph, fetching weights from platform API")
+        logger.info("Updating weights from platform API")        
+        try:
+            # Sync metagraph first to ensure we have latest UID mappings
+            self.resync_metagraph()
+            logger.info("Synced metagraph, fetching weights from platform API")
 
-        # Fetch weights from platform API
-        platform_weights = await self.api_client.get_weights()
-        logger.info(f"Platform weights: {platform_weights}")
-        
-        if platform_weights:
-            # Map platform weights to metagraph uids
-            self._apply_platform_weights_to_scores(platform_weights)
+            # Fetch weights from platform API
+            platform_weights = await self.api_client.get_weights()
+            logger.info(f"Platform weights: {platform_weights}")
             
-            # Set weights on chain
-            logger.info(f"Updated weights from platform for {len(platform_weights)} miners")
-        else:
-            logger.debug("No weights received from platform API")
+            if platform_weights:
+                # Map platform weights to metagraph uids
+                self._apply_platform_weights_to_scores(platform_weights)
+                # Set weights on chain immediately after updating scores
+                self.set_weights()
+                logger.info(f"Updated weights from platform for {len(platform_weights)} miners")
+            else:
+                logger.debug("No weights received from platform API")
 
-        # except Exception as e:
-        #     logger.error(f"Error in update weights: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error in update weights: {str(e)}")
     
     def _apply_platform_weights_to_scores(self, platform_weights: Dict[str, float]) -> None:
         """
