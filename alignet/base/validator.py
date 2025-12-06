@@ -301,12 +301,12 @@ class BaseValidatorNeuron(BaseNeuron):
             netuid=self.config.netuid,
             uids=uint_uids,
             weights=uint_weights,
-            wait_for_finalization=False,
-            wait_for_inclusion=False,
+            wait_for_finalization=True,
+            wait_for_inclusion=True,
             version_key=self.spec_version,
         )
         if result is True:
-            logger.info("set_weights on chain successfully!")
+            logger.info(f"set_weights on chain successfully! {msg}")
         else:
             logger.error(f"set_weights failed: {msg}")
 
