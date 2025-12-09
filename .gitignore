@@ -31,3 +31,5 @@ outputs/
 astro-petri/
 saved_petri_config/
 score_submissions/**/*.json
+validator.config.js
+repo-auto-updater.config.js

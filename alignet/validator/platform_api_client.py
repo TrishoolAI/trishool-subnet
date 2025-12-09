@@ -19,7 +19,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from alignet.cli.bts_signature import load_wallet, build_pair_auth_payload
-
+from alignet import __spec_version__ as spec_version
 from alignet.utils.logging import get_logger
 logger = get_logger()
 
@@ -46,8 +46,8 @@ class PlatformAPIClient:
             netuid: Subnet UID (default: 23)
         """
         self.platform_api_url = platform_api_url.rstrip('/')
-        self.coldkey_name = coldkey_name or os.getenv("COLDKEY_NAME")
-        self.hotkey_name = hotkey_name or os.getenv("HOTKEY_NAME")
+        self.coldkey_name = coldkey_name
+        self.hotkey_name = hotkey_name
         self.network = network
         self.netuid = netuid
         self.wallet = None
@@ -266,7 +266,8 @@ class PlatformAPIClient:
             url = f"{self.platform_api_url}/api/v1/validator/healthcheck"
             
             body = {
-                "hotkey": self.wallet.hotkey.ss58_address if self.wallet else ""
+                "hotkey": self.wallet.hotkey.ss58_address if self.wallet else "",
+                "spec_version": spec_version
             }
             
             async with aiohttp.ClientSession() as session:
