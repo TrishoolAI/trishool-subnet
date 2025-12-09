@@ -266,8 +266,8 @@ class PlatformAPIClient:
             url = f"{self.platform_api_url}/api/v1/validator/healthcheck"
             
             body = {
-                "hotkey": self.wallet.hotkey.ss58_address if self.wallet else ""
-                # "spec_version": spec_version
+                "hotkey": self.wallet.hotkey.ss58_address if self.wallet else "",
+                "spec_version": spec_version
             }
             
             async with aiohttp.ClientSession() as session:
