@@ -267,7 +267,7 @@ class PlatformAPIClient:
             
             body = {
                 "hotkey": self.wallet.hotkey.ss58_address if self.wallet else "",
-                "spec_version": spec_version
+                "spec_version": str(spec_version)
             }
             
             async with aiohttp.ClientSession() as session:
