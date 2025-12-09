@@ -66,9 +66,9 @@ Trishool is designed to advance AI safety by creating a decentralized platform f
 ## Quick Start
 ### Prerequisites
 
+- PM2. Follow this link: [pm2 installation](https://pm2.io/docs/runtime/guide/installation/)
 - Docker, docker compose
 - Python 3.12
-- Tmux (not required, but you can use it to keep session when running python commands)
 
 1. **Install dependencies**:
    ```bash
@@ -76,29 +76,20 @@ Trishool is designed to advance AI safety by creating a decentralized platform f
    ```
 
 2. **Set environment variables**:
-   ```bash
-   # API Keys (Required for Petri)
-   export CHUTES_API_KEY=your_chutes_api_key_here
-   # Platform API Configuration
-   export PLATFORM_API_URL=https://api.trishool.ai  # Platform API base URL
-   export COLDKEY_NAME=your_coldkey_name  # Bittensor coldkey for authentication
-   export HOTKEY_NAME=your_hotkey_name  # Bittensor hotkey for authentication
-   export NETWORK=finney  # Bittensor network (default: finney)
-   export NETUID=  # Subnet UID (default: 291 for testing)
-   
-   # Validator Configuration
-   export MAX_CONCURRENT_SANDBOXES=5  # Max concurrent sandboxes (default: 5)
-   export EVALUATION_INTERVAL=30  # Interval to fetch submissions (seconds, default: 30)
-   export UPDATE_WEIGHTS_INTERVAL=300  # Interval to fetch and update weights from platform (seconds, default: 5 minutes)
-   export RANDOM_SELECTION_COUNT=3  # Number of submissions to select randomly (default: 3)
-   
-   # Petri Commit Checker
-   export PETRI_COMMIT_CHECK_INTERVAL=300  # Interval to check for repo updates (seconds, default: 5 minutes)
-   ```
+- Create file validator.config.js from validator.config.sample.js
+- Create file repo-auto-updater.config.js from repo-auto-updater.config.sample.js
+- Fill all parameters in both config files 
 
 ### Running the Validator
+
+To run validator:
 ```bash
-python neurons/validator.py --netuid NetID --subtensor.network test_or_finney --wallet.name coldkey  --wallet.hotkey hotkey
+pm2 start validator.config.js 
+```
+
+To run repo-auto-updater to auto update subnet code:
+```bash
+pm2 start repo-auto-updater.config.js
 ```
 
 The validator will:
