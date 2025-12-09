@@ -179,11 +179,11 @@ class Validator(BaseValidatorNeuron):
                         logger.info(f"Submission {submission.submission_id} is processing")
                         continue
 
-                    try:
-                        if os.getenv("MAX_TURNS") is not None:
-                            submission.max_turns = int(os.getenv("MAX_TURNS"))
-                    except Exception as e:
-                        logger.error(f"Error setting max turns: {str(e)}")
+                    # try:
+                    #     if os.getenv("MAX_TURNS") is not None:
+                    #         submission.max_turns = int(os.getenv("MAX_TURNS"))
+                    # except Exception as e:
+                    #     logger.error(f"Error setting max turns: {str(e)}")
                         
                     self.active_submissions[submission.submission_id] = submission
                     logger.info(f"Submission: {submission.submission_id}")
