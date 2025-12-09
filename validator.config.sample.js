@@ -19,7 +19,6 @@ module.exports = {
       
       // Environment variables
       env: {
-        ANTHROPIC_API_KEY: "",
         CHUTES_API_KEY: "",
         CHUTES_BASE_URL: "https://llm.chutes.ai/v1",
         OPENAI_API_BASE: "https://llm.chutes.ai/v1",
