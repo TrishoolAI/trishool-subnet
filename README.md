@@ -87,7 +87,7 @@ To run validator:
 pm2 start validator.config.js 
 ```
 
-To run repo-auto-updater to auto update subnet code:
+To run repo-auto-updater to auto update subnet code. This process keep checking latest commit_hash, if latest commit_hash changes -> auto git pull -> restart validator.
 ```bash
 pm2 start repo-auto-updater.config.js
 ```
