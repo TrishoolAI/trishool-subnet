@@ -31,3 +31,4 @@ outputs/
 astro-petri/
 saved_petri_config/
 score_submissions/**/*.json
+tmp/
