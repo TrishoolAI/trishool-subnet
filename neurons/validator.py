@@ -76,12 +76,11 @@ class Validator(BaseValidatorNeuron):
         self.sandbox_manager = SandboxManager()
         
         # Initialize REST API client for platform communication
-        platform_api_url = os.getenv("PLATFORM_API_URL", "http://localhost:8000")
-        coldkey_name = os.getenv("COLDKEY_NAME")
-        hotkey_name = os.getenv("HOTKEY_NAME")
-        network = os.getenv("NETWORK", "finney")
-        netuid = int(os.getenv("NETUID", "23"))
-        
+        platform_api_url = os.getenv("PLATFORM_API_URL", "https://api.trishool.ai")
+        coldkey_name = self.config.wallet.name
+        hotkey_name = self.config.wallet.hotkey
+        network = self.config.subtensor.network
+        netuid = self.config.netuid
         self.api_client = PlatformAPIClient(
             platform_api_url=platform_api_url,
             coldkey_name=coldkey_name,
@@ -136,9 +135,8 @@ class Validator(BaseValidatorNeuron):
             
             # Start weight update loop as background task (runs independently)
             self._start_weight_update_loop()
-            logger.info("Evaluation loop started")
             await self._evaluation_loop()
-            
+            logger.info("Evaluation loop completed")
             await asyncio.sleep(30)
                     
         except Exception as e:
@@ -181,11 +179,11 @@ class Validator(BaseValidatorNeuron):
                         logger.info(f"Submission {submission.submission_id} is processing")
                         continue
 
-                    try:
-                        if os.getenv("MAX_TURNS") is not None:
-                            submission.max_turns = int(os.getenv("MAX_TURNS"))
-                    except Exception as e:
-                        logger.error(f"Error setting max turns: {str(e)}")
+                    # try:
+                    #     if os.getenv("MAX_TURNS") is not None:
+                    #         submission.max_turns = int(os.getenv("MAX_TURNS"))
+                    # except Exception as e:
+                    #     logger.error(f"Error setting max turns: {str(e)}")
                         
                     self.active_submissions[submission.submission_id] = submission
                     logger.info(f"Submission: {submission.submission_id}")
