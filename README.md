@@ -124,7 +124,7 @@ Miners submit **seed instructions** (prompts) via the platform API. The platform
 - Evaluation parameters (max_turns, etc.)
 
 **Requirements:**
-- Maximum 200 words
+- Maximum 2500 characters
 - Must not contain jailbreak attempts
 - Will be tested for similarity against existing submissions (duplicate detection)
 - Should be designed to probe target models for specific behavioral traits
