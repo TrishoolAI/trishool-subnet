@@ -359,6 +359,9 @@ class Validator(BaseValidatorNeuron):
         except Exception as e:
             logger.error(f"Error processing submission: {str(e)}")
             submission.update_status(SubmissionStatus.FAILED)
+        finally:
+            if submission.submission_id in self.active_submissions:
+                del self.active_submissions[submission.submission_id]
     
     async def _validate_submission(self, submission: MinerSubmission) -> bool:
         """
