@@ -25,7 +25,7 @@ import asyncio
 import argparse
 import threading
 import bittensor as bt
-
+import time
 from typing import List, Union
 from traceback import print_exception
 
@@ -156,19 +156,25 @@ class BaseValidatorNeuron(BaseNeuron):
                 asyncio.set_event_loop(self.loop)
             
             while True:
-                logger.info(f"step({self.step}) block({self.block})")
+                try:
+                    logger.info(f"step({self.step}) block({self.block})")
 
-                # Run multiple forwards concurrently.
-                self.loop.run_until_complete(self.concurrent_forward())
+                    # Run multiple forwards concurrently.
+                    self.loop.run_until_complete(self.concurrent_forward())
 
-                # Check if we should exit.
-                if self.should_exit:
-                    break
+                    # Check if we should exit.
+                    if self.should_exit:
+                        break
 
-                # Sync metagraph and potentially set weights.
-                self.sync()
+                    # Sync metagraph and potentially set weights.
+                    self.sync()
 
-                self.step += 1
+                    self.step += 1
+                
+                except Exception as err:
+                    logger.error(f"Error during validation: {str(err)}")
+                    ## sleep for 1 second
+                    time.sleep(5)
 
         # If someone intentionally stops the validator, it'll safely terminate operations.
         except KeyboardInterrupt:

@@ -34,3 +34,4 @@ score_submissions/**/*.json
 validator.config.js
 repo-auto-updater.config.js
 tmp/
+test_submission
