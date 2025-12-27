@@ -27,7 +27,7 @@ __spec_version__ = (
     + (1 * int(version_split[2]))
 )
 
-# Import all submodules.
+# Import all submodules
 from . import base
 from . import validator
 
