@@ -6,6 +6,8 @@ import traceback
 import shutil
 import tarfile
 import io
+import re
+from datetime import datetime
 
 import docker
 from docker.models.containers import Container
@@ -21,6 +23,7 @@ from .constants import (
     RUN_SCRIPT_COMMAND,
     CONFIG_FILE_PATH,
     OUTPUT_FILE_PATH,
+    TRANSCRIPT_FILE_PATTERN,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_RUN_ID,
     PYTHONUNBUFFERED,
@@ -62,7 +65,7 @@ class SandboxManager:
         if container:
             try:
                 container.kill()
-                logger.debug(f"[SANDBOX] Killed sandbox <{sandbox_id}>")
+                logger.info(f"[SANDBOX] Killed sandbox <{sandbox_id}>")
             except Exception as e:
                 logger.warning(f"[SANDBOX] Could not kill sandbox <{sandbox_id}>: {e}")
 
@@ -143,7 +146,7 @@ class SandboxManager:
         """
         temp_dir = tempfile.mkdtemp()
         sandbox_id = f"sandbox_{os.path.basename(temp_dir)}"
-        logger.debug(
+        logger.info(
             f"[SANDBOX] Created sandbox temp directory for <{sandbox_id}>: {temp_dir}"
         )
 
@@ -164,8 +167,8 @@ class SandboxManager:
             run_script_dest = os.path.join(temp_dir, RUN_SCRIPT_NAME)
             shutil.copy(run_script_source, run_script_dest)
             
-            logger.debug(f"[SANDBOX] Wrote Petri config for <{sandbox_id}>: {config_path}")
-            logger.debug(f"[SANDBOX] Config: run_id={petri_config.get('run_id')}, models={len(petri_config.get('models', []))}")
+            logger.info(f"[SANDBOX] Wrote Petri config for <{sandbox_id}>: {config_path}")
+            logger.info(f"[SANDBOX] Config: run_id={petri_config.get('run_id')}, models={len(petri_config.get('models', []))}")
 
             sandbox = SandBox(
                 image=PETRI_SANDBOX_IMAGE,
@@ -200,7 +203,7 @@ class SandboxManager:
             # # Check if image already exists
             # try:
             #     self.docker.images.get("petri_sandbox:latest")
-            #     logger.debug("[SANDBOX] Petri sandbox image already exists")
+            #     logger.info("[SANDBOX] Petri sandbox image already exists")
             #     return
             # except docker.errors.ImageNotFound:
             #     pass
@@ -322,7 +325,7 @@ class SandboxManager:
             )
             return output_json
         except Exception as e:
-            logger.debug(
+            logger.info(
                 f"[SANDBOX] <{sandbox_id}> Could not read {OUTPUT_FILE_PATH}, trying fallback path: {e}"
             )
             
@@ -347,6 +350,137 @@ class SandboxManager:
                     additional_info=f"Sandbox ID: {sandbox_id}, Run ID: {run_id}"
                 )
                 return None
+    
+    def _load_transcript_files_from_container(self, container: Container, sandbox_id: str, run_id: str, output_dir: str) -> list:
+        """
+        Load transcript files from container and save them to transcripts folder.
+        
+        Uses find command with regex pattern to locate transcript files in output directory
+        and subdirectories. Files are saved with run_id prefix to avoid conflicts when
+        multiple sandboxes run in parallel.
+        
+        Args:
+            container: Docker container object
+            sandbox_id: Sandbox identifier for logging
+            run_id: Run ID from config (used as prefix for saved files)
+            output_dir: Output directory from config
+            
+        Returns:
+            List of saved transcript file paths
+        """
+        saved_files = []
+        # Get project root (sn23-subnet directory) - 4 levels up from this file
+        # alignet/validator/sandbox/sandbox_management.py -> sn23-subnet/
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        transcripts_dir = os.path.join(project_root, "transcripts")
+        os.makedirs(transcripts_dir, exist_ok=True)
+        
+        # Find transcript files using TRANSCRIPT_FILE_PATTERN from constants
+        # Search in output_dir and all subdirectories
+        # Note: Cannot use exec_run() on stopped container, so we use get_archive() instead
+        try:
+            # Get archive of the entire output directory
+            # This works even on stopped containers
+            search_path = f"{SANDBOX_MOUNT_PATH}/{output_dir}"
+            
+            try:
+                # Get archive of output directory
+                bits, stat = container.get_archive(search_path)
+                file_obj = io.BytesIO()
+                for chunk in bits:
+                    file_obj.write(chunk)
+                file_obj.seek(0)
+                tar = tarfile.open(fileobj=file_obj)
+                
+                # Extract all members and find transcript files matching pattern
+                transcript_pattern_re = re.compile(TRANSCRIPT_FILE_PATTERN)
+                transcript_paths = []
+                
+                for member in tar.getmembers():
+                    if member.isfile():
+                        # Check if path matches transcript pattern
+                        # Remove leading path to match pattern (e.g., remove /sandbox/outputs/)
+                        relative_path = member.name
+                        # Remove output_dir prefix if present
+                        if relative_path.startswith(f"{output_dir}/"):
+                            relative_path = relative_path[len(f"{output_dir}/"):]
+                        elif relative_path.startswith(output_dir):
+                            relative_path = relative_path[len(output_dir):].lstrip('/')
+                        
+                        # Match against pattern (pattern expects .*/transcript_.*\.json$)
+                        if transcript_pattern_re.match(relative_path) or transcript_pattern_re.match(f"/{relative_path}"):
+                            transcript_paths.append(member.name)
+                
+                if not transcript_paths:
+                    logger.info(f"[SANDBOX] <{sandbox_id}> No transcript files found in {search_path}")
+                    tar.close()
+                    return saved_files
+                
+                logger.info(f"[SANDBOX] <{sandbox_id}> Found {len(transcript_paths)} transcript file(s)")
+                
+                # Extract and save transcript files
+                for transcript_path_in_tar in transcript_paths:
+                    try:
+                        # Extract file from tar
+                        file_member = tar.extractfile(transcript_path_in_tar)
+                        if not file_member:
+                            logger.warning(f"[SANDBOX] <{sandbox_id}> Could not extract {transcript_path_in_tar} from archive")
+                            continue
+                        
+                        transcript_content = file_member.read()
+                        
+                        # Get original filename from path
+                        original_filename = os.path.basename(transcript_path_in_tar)
+                        
+                        # Add run_id prefix to avoid conflicts when multiple sandboxes run in parallel
+                        # Format: {run_id}_{original_filename}
+                        local_filename = f"{run_id}_{original_filename}"
+                        local_path = os.path.join(transcripts_dir, local_filename)
+                        
+                        # Check if file already exists (shouldn't happen with run_id prefix, but be safe)
+                        if os.path.exists(local_path):
+                            logger.warning(
+                                f"[SANDBOX] <{sandbox_id}> Transcript file already exists: {local_filename}, "
+                                f"adding timestamp suffix"
+                            )
+                            # Add timestamp to make it unique
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                            name, ext = os.path.splitext(local_filename)
+                            local_filename = f"{name}_{timestamp}{ext}"
+                            local_path = os.path.join(transcripts_dir, local_filename)
+                        
+                        # Write to local file
+                        with open(local_path, 'wb') as f:
+                            f.write(transcript_content)
+                        
+                        saved_files.append(local_path)
+                        logger.info(
+                            f"[SANDBOX] <{sandbox_id}> saved transcript: {local_filename} "
+                            f"(from {transcript_path_in_tar})"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[SANDBOX] <{sandbox_id}> failed to extract transcript file {transcript_path_in_tar}: {e}"
+                        )
+                        continue
+                
+                tar.close()
+                
+            except Exception as e:
+                logger.info(f"[SANDBOX] <{sandbox_id}> Could not get archive from container: {e}")
+                return saved_files
+                
+        except Exception as e:
+            logger.info(f"[SANDBOX] <{sandbox_id}> Could not search for transcript files: {e}")
+        
+        if saved_files:
+            logger.info(
+                f"[SANDBOX] <{sandbox_id}> saved {len(saved_files)} transcript file(s) to {transcripts_dir}"
+            )
+        else:
+            logger.info(f"[SANDBOX] <{sandbox_id}> No transcript files found to save")
+        
+        return saved_files
     
     def _stream_container_logs(self, container: Container, sandbox_id: str) -> list:
         """
@@ -420,7 +554,7 @@ class SandboxManager:
             
             # Run the sandbox container
             sandbox.container = self.docker.containers.run(**container_args)
-            logger.debug(f"[SANDBOX] Started container for <{sandbox_id}>: {type(sandbox.container)}")
+            logger.info(f"[SANDBOX] Started container for <{sandbox_id}>: {type(sandbox.container)}")
 
             # Stream logs while container is running
             logs_buffer = self._stream_container_logs(sandbox.container, sandbox_id)
@@ -429,7 +563,7 @@ class SandboxManager:
             exit_code = sandbox.container.wait()
             exit_code = exit_code["StatusCode"]
             result["exit_code"] = exit_code
-            logger.debug(f"[SANDBOX] <{sandbox_id}> finished running with exit code: {exit_code}")
+            logger.info(f"[SANDBOX] <{sandbox_id}> finished running with exit code: {exit_code}")
             
             print(f"{'='*60}")
             print(f"SANDBOX COMPLETED: {sandbox_id} (exit code: {exit_code})")
@@ -437,7 +571,7 @@ class SandboxManager:
 
             # Store logs
             result["logs"] = "\n".join(logs_buffer)
-            logger.debug(f"[SANDBOX] <{sandbox_id}> captured {len(logs_buffer)} lines of logs")
+            logger.info(f"[SANDBOX] <{sandbox_id}> captured {len(logs_buffer)} lines of logs")
 
             # Handle exit code errors
             if exit_code != 0:
@@ -469,6 +603,16 @@ class SandboxManager:
                     # Only set error if we didn't already have an error
                     result["error"] = "Output JSON not found in container"
                     result["status"] = "error"
+                
+                # Load and save transcript files
+                transcript_files = self._load_transcript_files_from_container(
+                    sandbox.container, sandbox_id, run_id, output_dir
+                )
+                result["transcript_files"] = transcript_files
+                ## show transcript files
+                for transcript_file in transcript_files:
+                    logger.info(f"[SANDBOX] <{sandbox_id}> transcript file: {transcript_file}")
+
 
             # Remove container
             sandbox.container.remove()
@@ -503,7 +647,7 @@ class SandboxManager:
             try:
                 container.stop()
                 container.remove()
-                logger.debug(
+                logger.info(
                     f"[SANDBOX] Stopped and removed container for <{sandbox_id}>"
                 )
             except Exception as e:
@@ -514,7 +658,7 @@ class SandboxManager:
         # Clean up temp directory
         del self.sandboxes[sandbox_id]
 
-        logger.debug(f"[SANDBOX] Cleaned up sandbox <{sandbox_id}>")
+        logger.info(f"[SANDBOX] Cleaned up sandbox <{sandbox_id}>")
 
     def cleanup_all(self):
         """Clean up all sandboxes."""

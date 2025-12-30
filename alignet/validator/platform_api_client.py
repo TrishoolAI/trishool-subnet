@@ -345,4 +345,73 @@ class PlatformAPIClient:
                 context="PlatformAPI.healthcheck"
             )
             return False
+    
+    async def upload_log(
+        self,
+        file_path: str,
+        file_type: str,
+    ) -> Dict[str, Any]:
+        """
+        Upload a log file or transcript file to platform.
+        
+        Args:
+            file_path: Path to the file to upload
+            file_type: Type of file ("log" or "transcript")
+            
+        Returns:
+            Response dictionary with status and message
+        """
+        try:
+            headers = self._build_auth_headers()
+            url = f"{self.platform_api_url}/api/v1/validator/upload_log"
+            logger.info(f"Uploading {file_type} file: {file_path}")
+            
+            # Read file content
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
+            
+            # Prepare multipart form data
+            form_data = aiohttp.FormData()
+            form_data.add_field('file', file_content, filename=os.path.basename(file_path), content_type='application/octet-stream')
+            form_data.add_field('file_type', file_type)
+            form_data.add_field('filename', os.path.basename(file_path))
+            form_data.add_field('file_size', str(len(file_content)))
+            
+            # Remove Content-Type from headers (aiohttp will set it with boundary)
+            upload_headers = {k: v for k, v in headers.items() if k.lower() != 'content-type'}
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=upload_headers, data=form_data) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        logger.info(f"Successfully uploaded {file_type} file: {os.path.basename(file_path)}")
+                        return data
+                    else:
+                        error_text = await response.text()
+                        error_msg = f"Failed to upload {file_type} file: {response.status} - {error_text}"
+                        logger.error(error_msg)
+                        await send_error_to_telegram(
+                            error_message=error_msg,
+                            hotkey=self.hotkey_address,
+                            context="PlatformAPI.upload_log",
+                            additional_info=f"File: {os.path.basename(file_path)}, Type: {file_type}"
+                        )
+                        return {
+                            "status": "error",
+                            "message": error_text,
+                        }
+                        
+        except Exception as e:
+            error_msg = f"Error uploading {file_type} file: {str(e)}"
+            logger.error(error_msg)
+            await send_error_to_telegram(
+                error_message=error_msg,
+                hotkey=self.hotkey_address,
+                context="PlatformAPI.upload_log",
+                additional_info=f"File: {file_path}, Type: {file_type}"
+            )
+            return {
+                "status": "error",
+                "message": str(e),
+            }
 

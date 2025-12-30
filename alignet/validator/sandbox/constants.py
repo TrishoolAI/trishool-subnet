@@ -17,6 +17,9 @@ RUN_SCRIPT_COMMAND = f"/bin/bash {SANDBOX_MOUNT_PATH}/{RUN_SCRIPT_NAME} 2>&1"
 # Config file paths
 CONFIG_FILE_PATH = f"{SANDBOX_MOUNT_PATH}/{CONFIG_FILE_NAME}"
 OUTPUT_FILE_PATH = f"{SANDBOX_MOUNT_PATH}/outputs/{OUTPUT_FILE_NAME}"
+# Regex pattern for finding transcript files (used with find -regex)
+# Matches: transcript_*.json in any subdirectory
+TRANSCRIPT_FILE_PATTERN = r".*/transcript_.*\.json$"
 
 # Default values
 DEFAULT_OUTPUT_DIR = "outputs"
