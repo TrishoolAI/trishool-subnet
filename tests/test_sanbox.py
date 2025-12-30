@@ -183,7 +183,7 @@ Examples:
     miner_id = args.miner_id or "test_miner_001"
 
     # Initialize sandbox manager
-    sandbox_manager = SandboxManager()
+    sandbox_manager = SandboxManager(hotkey=args.miner_hotkey)
     commit_checker = PetriCommitChecker(
         sandbox_manager=sandbox_manager,
         check_interval=300

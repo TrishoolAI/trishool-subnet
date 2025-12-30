@@ -27,6 +27,7 @@ from .constants import (
 )
 
 from alignet.utils.logging import get_logger
+from alignet.utils.telegram import send_error_safe
 logger = get_logger()
 
 
@@ -37,11 +38,13 @@ class SandboxManager:
     def __init__(
         self,
         docker_url: str = "unix://var/run/docker.sock",
+        hotkey: str = "",
     ):
         """Initialize SandboxManager."""
         self.docker = DockerClient(base_url=docker_url)
         self.sandboxes = {}
-        logger.info("[SANDBOX] SandboxManager initialized")
+        self.hotkey = hotkey
+        logger.info(f"[SANDBOX] SandboxManager initialized for hotkey: {hotkey}")
 
 
     def __del__(self):
@@ -89,7 +92,14 @@ class SandboxManager:
                         logger.info(log["stream"].strip())
             return image
         except Exception as e:
-            logger.error(f"[SANDBOX] Error building image: {e}")
+            error_msg = f"[SANDBOX] Error building image: {e}"
+            logger.error(error_msg)
+            send_error_safe(
+                error_message=error_msg,
+                hotkey=self.hotkey,
+                context="SandboxManager.build_image",
+                additional_info=f"Tag: {tag}, Path: {path}"
+            )
             return None
 
     def __finish_with_error(self, sandbox_id, error_msg, result):
@@ -169,7 +179,14 @@ class SandboxManager:
             return sandbox_id
             
         except Exception as e:
-            logger.error(f"[SANDBOX] Failed to create sandbox <{sandbox_id}>: {e}")
+            error_msg = f"[SANDBOX] Failed to create sandbox <{sandbox_id}>: {e}"
+            logger.error(error_msg)
+            send_error_safe(
+                error_message=error_msg,
+                hotkey=self.hotkey,
+                context="SandboxManager.create_sandbox",
+                additional_info=f"Sandbox ID: {sandbox_id}, Run ID: {petri_config.get('run_id', 'unknown')}"
+            )
             # Clean up temp directory
             try:
                 shutil.rmtree(temp_dir)
@@ -193,7 +210,14 @@ class SandboxManager:
             petri_path = os.path.join(current_dir, "petri")
             
             if not os.path.exists(petri_path):
-                logger.error(f"[SANDBOX] Petri Dockerfile not found at {petri_path}")
+                error_msg = f"[SANDBOX] Petri Dockerfile not found at {petri_path}"
+                logger.error(error_msg)
+                send_error_safe(
+                    error_message=error_msg,
+                    hotkey=self.hotkey,
+                    context="SandboxManager._build_petri_image",
+                    additional_info=f"Path: {petri_path}"
+                )
                 raise FileNotFoundError(f"Petri Dockerfile not found at {petri_path}")
             
             logger.info("[SANDBOX] Building Petri sandbox image...")
@@ -205,7 +229,14 @@ class SandboxManager:
             logger.info("[SANDBOX] Petri sandbox image built successfully")
             
         except Exception as e:
-            logger.error(f"[SANDBOX] Failed to build Petri image: {e}")
+            error_msg = f"[SANDBOX] Failed to build Petri image: {e}"
+            logger.error(error_msg)
+            send_error_safe(
+                error_message=error_msg,
+                hotkey=self.hotkey,
+                context="SandboxManager._build_petri_image",
+                additional_info=f"Petri path: {petri_path}"
+            )
             raise
     
 
@@ -307,7 +338,14 @@ class SandboxManager:
                 )
                 return output_json
             except Exception as e2:
-                logger.error(f"[SANDBOX] <{sandbox_id}> failed to load Petri output JSON: {e2}")
+                error_msg = f"[SANDBOX] <{sandbox_id}> failed to load Petri output JSON: {e2}"
+                logger.error(error_msg)
+                send_error_safe(
+                    error_message=error_msg,
+                    hotkey=self.hotkey,
+                    context="SandboxManager._load_output_json_from_container",
+                    additional_info=f"Sandbox ID: {sandbox_id}, Run ID: {run_id}"
+                )
                 return None
     
     def _stream_container_logs(self, container: Container, sandbox_id: str) -> list:
@@ -407,6 +445,12 @@ class SandboxManager:
                 logger.error(f"[SANDBOX] <{sandbox_id}> {error_msg}")
                 result["error"] = error_msg
                 result["status"] = "error"
+                send_error_safe(
+                    error_message=f"[SANDBOX] <{sandbox_id}> {error_msg}",
+                    hotkey=self.hotkey,
+                    context="SandboxManager.run_sandbox",
+                    additional_info=f"Sandbox ID: {sandbox_id}, Exit Code: {exit_code}"
+                )
 
             else:
                 # Read config to get run_id and output_dir

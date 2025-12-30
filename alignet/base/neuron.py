@@ -28,6 +28,7 @@ from alignet.utils.misc import ttl_get_block
 from alignet import __spec_version__ as spec_version
 
 from alignet.utils.logging import get_logger
+from alignet.utils.telegram import send_error_safe
 logger = get_logger()
 
 class BaseNeuron(ABC):
@@ -119,17 +120,32 @@ class BaseNeuron(ABC):
             # Always save state.
             self.save_state()
         except Exception as e:
-            logger.error(f"Error syncing network: {str(e)}")
+            error_msg = f"Error syncing network: {str(e)}"
+            logger.error(error_msg)
+            hotkey = self.wallet.hotkey.ss58_address if hasattr(self, 'wallet') and self.wallet else ""
+            send_error_safe(
+                error_message=error_msg,
+                hotkey=hotkey,
+                context="BaseNeuron.sync"
+            )
 
     def check_registered(self):
+        hotkey = self.wallet.hotkey.ss58_address if hasattr(self, 'wallet') and self.wallet else ""
         # --- Check for registration.
         if not self.subtensor.is_hotkey_registered(
             netuid=self.config.netuid,
             hotkey_ss58=self.wallet.hotkey.ss58_address,
         ):
-            logger.error(
+            error_msg = (
                 f"Wallet: {self.wallet} is not registered on netuid {self.config.netuid}."
                 f" Please register the hotkey using `btcli subnets register` before trying again"
+            )
+            logger.error(error_msg)
+            send_error_safe(
+                error_message=error_msg,
+                hotkey=hotkey,
+                context="BaseNeuron.check_registered",
+                additional_info=f"NetUID: {self.config.netuid}"
             )
             exit()
 

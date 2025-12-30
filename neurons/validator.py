@@ -31,6 +31,7 @@ import numpy as np
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
+
 # Add the project root directory to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
@@ -48,7 +49,7 @@ from alignet.validator.sandbox.sandbox_management import SandboxManager
 from alignet.validator.platform_api_client import PlatformAPIClient
 from alignet.validator.petri_commit_checker import PetriCommitChecker
 from alignet.models.submission import MinerSubmission, SubmissionStatus
-
+from alignet.utils.telegram import send_error_safe
 from alignet.utils.logging import get_logger
 logger = get_logger()
 
@@ -72,8 +73,6 @@ class Validator(BaseValidatorNeuron):
         logger.info("Loading Alignet Validator state...")
         self.load_state()
 
-        # Initialize components
-        self.sandbox_manager = SandboxManager()
         
         # Initialize REST API client for platform communication
         platform_api_url = os.getenv("PLATFORM_API_URL", "https://api.trishool.ai")
@@ -85,9 +84,12 @@ class Validator(BaseValidatorNeuron):
             platform_api_url=platform_api_url,
             coldkey_name=coldkey_name,
             hotkey_name=hotkey_name,
+            hotkey_address=self.wallet.hotkey.ss58_address,
             network=network,
             netuid=netuid
         )
+        # Initialize Sandbox Manager
+        self.sandbox_manager = SandboxManager(hotkey=self.wallet.hotkey.ss58_address)
         
         # Initialize Petri commit checker
         commit_check_interval = int(os.getenv("PETRI_COMMIT_CHECK_INTERVAL", "300"))  # 5 minutes default
@@ -486,6 +488,13 @@ class Validator(BaseValidatorNeuron):
                 error_message = "; ".join(errors)
                 logger.warning(
                     f"Petri evaluation returned error status for submission {submission.submission_id}: {error_message}"
+                )
+                # Send error to Telegram
+                send_error_safe(
+                    error_message=error_message,
+                    hotkey=self.wallet.hotkey.ss58_address,
+                    context="Validator._execute_petri_evaluation",
+                    additional_info=f"Submission: {submission.submission_id}"
                 )
                 submission.update_status(SubmissionStatus.FAILED)
                 submission.petri_output_json = output_json

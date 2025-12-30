@@ -36,6 +36,7 @@ from alignet.base.utils.weight_utils import (
 )  # TODO: Replace when bittensor switches to numpy
 from alignet.utils.config import add_validator_args
 from alignet.utils.logging import get_logger
+from alignet.utils.telegram import send_error_safe
 logger = get_logger()
 
 class BaseValidatorNeuron(BaseNeuron):
@@ -97,6 +98,7 @@ class BaseValidatorNeuron(BaseNeuron):
         logger.info("serving ip to chain...")
         try:
             self.axon = bt.axon(wallet=self.wallet, config=self.config)
+            hotkey = self.wallet.hotkey.ss58_address if hasattr(self, 'wallet') and self.wallet else ""
 
             try:
                 self.subtensor.serve_axon(
@@ -107,12 +109,23 @@ class BaseValidatorNeuron(BaseNeuron):
                     f"Running validator {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
                 )
             except Exception as e:
-                logger.error(f"Failed to serve Axon with exception: {e}")
+                error_msg = f"Failed to serve Axon with exception: {e}"
+                logger.error(error_msg)
+                send_error_safe(
+                    error_message=error_msg,
+                    hotkey=hotkey,
+                    context="BaseValidator.serve_axon"
+                )
                 pass
 
         except Exception as e:
-            logger.error(
-                f"Failed to create Axon initialize with exception: {e}"
+            error_msg = f"Failed to create Axon initialize with exception: {e}"
+            logger.error(error_msg)
+            hotkey = self.wallet.hotkey.ss58_address if hasattr(self, 'wallet') and self.wallet else ""
+            send_error_safe(
+                error_message=error_msg,
+                hotkey=hotkey,
+                context="BaseValidator.serve_axon"
             )
             pass
 
@@ -147,6 +160,7 @@ class BaseValidatorNeuron(BaseNeuron):
         self.sync()
 
         logger.info(f"Validator starting at block: {self.block}")
+        hotkey = self.wallet.hotkey.ss58_address if hasattr(self, 'wallet') and self.wallet else ""
 
         # This loop maintains the validator's operations until intentionally stopped.
         try:
@@ -172,7 +186,14 @@ class BaseValidatorNeuron(BaseNeuron):
                     self.step += 1
                 
                 except Exception as err:
-                    logger.error(f"Error during validation: {str(err)}")
+                    error_msg = f"Error during validation: {str(err)}"
+                    logger.error(error_msg)
+                    send_error_safe(
+                        error_message=error_msg,
+                        hotkey=hotkey,
+                        context="BaseValidator.run",
+                        additional_info=f"Step: {self.step}, Block: {self.block}"
+                    )
                     ## sleep for 1 second
                     time.sleep(5)
 
@@ -185,9 +206,17 @@ class BaseValidatorNeuron(BaseNeuron):
 
         # In case of unforeseen errors, the validator will log the error and continue operations.
         except Exception as err:
-            logger.error(f"Error during validation: {str(err)}")
+            error_msg = f"Error during validation: {str(err)}"
+            logger.error(error_msg)
             logger.debug(
                 str(print_exception(type(err), err, err.__traceback__))
+            )
+            hotkey = self.wallet.hotkey.ss58_address if hasattr(self, 'wallet') and self.wallet else ""
+            send_error_safe(
+                error_message=error_msg,
+                hotkey=hotkey,
+                context="BaseValidator.run",
+                additional_info=f"Fatal error in validator run loop"
             )
 
     def run_in_background_thread(self):
