@@ -744,7 +744,6 @@ class Validator(BaseValidatorNeuron):
                 uid = int(key)
                 if 0 <= uid < len(self.scores):
                     self.scores[uid] = float(weight)
-                    logger.info(f"Mapped weight {weight} to UID {uid}")
                 else:
                     logger.warning(f"UID {uid} out of range (metagraph.n={len(self.scores)})")
 
