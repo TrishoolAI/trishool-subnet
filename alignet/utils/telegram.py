@@ -31,6 +31,8 @@ def _get_error_hash(error_message: str, context: str = "") -> str:
 def _should_send_error(error_message: str, context: str = "") -> bool:
     """Check if an error should be sent (not a duplicate within time window)."""
     try:
+        if "Temporary failure in name resolution" in error_message:
+            return False
         error_hash = _get_error_hash(error_message, context)
         current_time = time.time()
         

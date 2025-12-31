@@ -98,44 +98,47 @@ class PlatformAPIClient:
         Returns:
             PetriConfigResponse dictionary or None if no submission available
         """
-        try:
-            headers = self._build_auth_headers()
-            url = f"{self.platform_api_url}/api/v1/validator/evaluation-agents"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if data:
-                            return data
-                        else:
-                            logger.debug("No evaluation submission available")
+        url = f"{self.platform_api_url}/api/v1/validator/evaluation-agents"
+        error_text = None
+        
+        # Retry 3 times
+        for i in range(3):
+            try:
+                headers = self._build_auth_headers()
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            if data:
+                                return data
+                            else:
+                                logger.debug("No evaluation submission available")
+                                return None
+                        elif response.status == 404:
+                            # No submission available - not an error, don't retry
+                            logger.debug("No evaluation submission available (404)")
                             return None
-                    elif response.status == 404:
-                        # No submission available
-                        logger.debug("No evaluation submission available (404)")
-                        return None
-                    else:
-                        error_text = await response.text()
-                        error_msg = f"Failed to get evaluation agents: {response.status} - {error_text}"
-                        logger.error(error_msg)
-                        await send_error_to_telegram(
-                            error_message=error_msg,
-                            hotkey=self.hotkey_address,
-                            context="PlatformAPI.get_evaluation_agents",
-                            additional_info=f"URL: {url}"
-                        )
-                        return None
-                        
-        except Exception as e:
-            error_msg = f"Error fetching evaluation agents: {str(e)}"
-            logger.error(error_msg)
-            await send_error_to_telegram(
-                error_message=error_msg,
-                hotkey=self.hotkey_address,
-                context="PlatformAPI.get_evaluation_agents"
-            )
-            return None
+                        else:
+                            error_text = await response.text()
+                            logger.warning(f"Failed to get evaluation agents, retrying... ({i+1}/3): {response.status} - {error_text}")
+                            # Don't send telegram notification on retry, only after all retries fail
+                            await asyncio.sleep(1)
+                            
+            except Exception as e:
+                error_text = str(e)
+                logger.warning(f"Error fetching evaluation agents, retrying... ({i+1}/3): {error_text}")
+                await asyncio.sleep(1)
+        
+        # All retries failed, send telegram notification
+        error_msg = f"Failed to get evaluation agents after 3 retries: {error_text}"
+        logger.error(error_msg)
+        await send_error_to_telegram(
+            error_message=error_msg,
+            hotkey=self.hotkey_address,
+            context="PlatformAPI.get_evaluation_agents",
+            additional_info=f"URL: {url}"
+        )
+        return None
     
     async def submit_scores(self, scores: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -147,57 +150,55 @@ class PlatformAPIClient:
         Returns:
             Response dictionary with status, message, session_id, and count
         """
-        try:
-            headers = self._build_auth_headers()
-            url = f"{self.platform_api_url}/api/v1/validator/submit_scores"
-            
-            # Format scores according to API spec
-            # API expects: {"scores": [{"agent_id": "...", "score": 0.0}]}
-            body = {
-                "scores": [
-                    {"agent_id": score["agent_id"], "score": score["score"]}
-                    for score in scores
-                ]
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=body) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        logger.info(f"Submitted {len(scores)} scores successfully")
-                        return data
-                    else:
-                        error_text = await response.text()
-                        error_msg = f"Failed to submit scores: {response.status} - {error_text}"
-                        logger.error(error_msg)
-                        await send_error_to_telegram(
-                            error_message=error_msg,
-                            hotkey=self.hotkey_address,
-                            context="PlatformAPI.submit_scores",
-                            additional_info=f"Score count: {len(scores)}"
-                        )
-                        return {
-                            "status": "error",
-                            "message": f"HTTP {response.status}: {error_text}",
-                            "session_id": None,
-                            "count": 0
-                        }
-                        
-        except Exception as e:
-            error_msg = f"Error submitting scores: {str(e)}"
-            logger.error(error_msg)
-            await send_error_to_telegram(
-                error_message=error_msg,
-                hotkey=self.hotkey_address,
-                context="PlatformAPI.submit_scores",
-                additional_info=f"Score count: {len(scores)}"
-            )
-            return {
-                "status": "error",
-                "message": str(e),
-                "session_id": None,
-                "count": 0
-            }
+        url = f"{self.platform_api_url}/api/v1/validator/submit_scores"
+        
+        # Format scores according to API spec
+        # API expects: {"scores": [{"agent_id": "...", "score": 0.0}]}
+        body = {
+            "scores": [
+                {"agent_id": score["agent_id"], "score": score["score"]}
+                for score in scores
+            ]
+        }
+        
+        error_text = None
+        
+        # Retry 3 times
+        for i in range(3):
+            try:
+                headers = self._build_auth_headers()
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, headers=headers, json=body) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            logger.info(f"Submitted {len(scores)} scores successfully")
+                            return data
+                        else:
+                            error_text = await response.text()
+                            logger.warning(f"Failed to submit scores, retrying... ({i+1}/3): {response.status} - {error_text}")
+                            # Don't send telegram notification on retry, only after all retries fail
+                            await asyncio.sleep(1)
+                            
+            except Exception as e:
+                error_text = str(e)
+                logger.warning(f"Error submitting scores, retrying... ({i+1}/3): {error_text}")
+                await asyncio.sleep(1)
+        
+        # All retries failed, send telegram notification
+        error_msg = f"Failed to submit scores after 3 retries: {error_text}"
+        logger.error(error_msg)
+        await send_error_to_telegram(
+            error_message=error_msg,
+            hotkey=self.hotkey_address,
+            context="PlatformAPI.submit_scores",
+            additional_info=f"Score count: {len(scores)}"
+        )
+        return {
+            "status": "error",
+            "message": f"HTTP error: {error_text}" if error_text else "Unknown error",
+            "session_id": None,
+            "count": 0
+        }
     
     async def submit_petri_output(
         self, 
@@ -214,21 +215,21 @@ class PlatformAPIClient:
         Returns:
             Response dictionary with status, message, and run_id
         """
-        try:
-            os.makedirs("score_submissions", exist_ok=True)
-            url = f"{self.platform_api_url}/api/v1/validator/submit_scores/{submission_id}"
+        os.makedirs("score_submissions", exist_ok=True)
+        url = f"{self.platform_api_url}/api/v1/validator/submit_scores/{submission_id}"
+        error_text = None
+        
+        # Retry 3 times
+        for i in range(3):
+            try:
+                headers = self._build_auth_headers()
+                # save request to file
+                # with open(f"score_submissions/{submission_id}_request.json", "w") as f:
+                #     petri_output["submission_id"] = submission_id
+                #     petri_output["headers"] = headers
+                #     json.dump(petri_output, f, indent=2)
 
-            async with aiohttp.ClientSession() as session:
-                ## retry 3 times
-                error_text = None
-                for i in range(3):
-                    headers = self._build_auth_headers()
-                    # save request to file
-                    # with open(f"score_submissions/{submission_id}_request.json", "w") as f:
-                    #     petri_output["submission_id"] = submission_id
-                    #     petri_output["headers"] = headers
-                    #     json.dump(petri_output, f, indent=2)
-
+                async with aiohttp.ClientSession() as session:
                     async with session.post(url, headers=headers, json=petri_output) as response:
                         if response.status == 200:
                             data = await response.json()
@@ -236,37 +237,29 @@ class PlatformAPIClient:
                             return data
                         else:
                             error_text = await response.text()
-                            logger.error(f"Failed to submit Petri output, retrying... ({i+1}/3)")
+                            logger.warning(f"Failed to submit Petri output, retrying... ({i+1}/3): {response.status} - {error_text}")
                             # Don't send telegram notification on retry, only after all retries fail
-                            await asyncio.sleep(1)    
-
-                error_msg = f"Failed to submit Petri output after 3 retries: {error_text}"
-                logger.error(error_msg)
-                await send_error_to_telegram(
-                    error_message=error_msg,
-                    hotkey=self.hotkey_address,
-                    context="PlatformAPI.submit_petri_output",
-                    additional_info=f"Submission ID: {submission_id}, Run ID: {petri_output.get('run_id', 'unknown')}"
-                )
-                return {
-                    "status": "error",
-                    "message": error_text,
-                    "run_id": petri_output.get("run_id", "")
-                }
-        except Exception as e:
-            error_msg = f"Error submitting Petri output: {str(e)}"
-            logger.error(error_msg)
-            await send_error_to_telegram(
-                error_message=error_msg,
-                hotkey=self.hotkey_address,
-                context="PlatformAPI.submit_petri_output",
-                additional_info=f"Submission ID: {submission_id}"
-            )
-            return {
-                "status": "error",
-                "message": str(e),
-                "run_id": petri_output.get("run_id", "")
-            }
+                            await asyncio.sleep(1)
+                            
+            except Exception as e:
+                error_text = str(e)
+                logger.warning(f"Error submitting Petri output, retrying... ({i+1}/3): {error_text}")
+                await asyncio.sleep(1)
+        
+        # All retries failed, send telegram notification
+        error_msg = f"Failed to submit Petri output after 3 retries: {error_text}"
+        logger.error(error_msg)
+        await send_error_to_telegram(
+            error_message=error_msg,
+            hotkey=self.hotkey_address,
+            context="PlatformAPI.submit_petri_output",
+            additional_info=f"Submission ID: {submission_id}, Run ID: {petri_output.get('run_id', 'unknown')}"
+        )
+        return {
+            "status": "error",
+            "message": error_text,
+            "run_id": petri_output.get("run_id", "")
+        }
     
     async def get_weights(self) -> Optional[Dict[str, float]]:
         """
@@ -324,33 +317,42 @@ class PlatformAPIClient:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            headers = self._build_auth_headers()
-            url = f"{self.platform_api_url}/api/v1/validator/healthcheck"
-            
-            body = {
-                "hotkey": self.wallet.hotkey.ss58_address if self.wallet else "",
-                "spec_version": str(spec_version)
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=body) as response:
-                    if response.status == 200:
-                        logger.debug("Healthcheck successful")
-                        return True
-                    else:
-                        logger.warning(f"Healthcheck failed: {response.status}")
-                        return False
-                        
-        except Exception as e:
-            error_msg = f"Error sending healthcheck: {str(e)}"
-            logger.error(error_msg)
-            await send_error_to_telegram(
-                error_message=error_msg,
-                hotkey=self.hotkey_address,
-                context="PlatformAPI.healthcheck"
-            )
-            return False
+        url = f"{self.platform_api_url}/api/v1/validator/healthcheck"
+        body = {
+            "hotkey": self.wallet.hotkey.ss58_address if self.wallet else "",
+            "spec_version": str(spec_version)
+        }
+        error_text = None
+        
+        # Retry 3 times
+        for i in range(3):
+            try:
+                headers = self._build_auth_headers()
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, headers=headers, json=body) as response:
+                        if response.status == 200:
+                            logger.debug("Healthcheck successful")
+                            return True
+                        else:
+                            error_text = await response.text()
+                            logger.warning(f"Healthcheck failed, retrying... ({i+1}/3): {response.status} - {error_text}")
+                            # Don't send telegram notification on retry, only after all retries fail
+                            await asyncio.sleep(1)
+                            
+            except Exception as e:
+                error_text = str(e)
+                logger.warning(f"Error sending healthcheck, retrying... ({i+1}/3): {error_text}")
+                await asyncio.sleep(1)
+        
+        # All retries failed, send telegram notification
+        error_msg = f"Failed to send healthcheck after 3 retries: {error_text}"
+        logger.error(error_msg)
+        await send_error_to_telegram(
+            error_message=error_msg,
+            hotkey=self.hotkey_address,
+            context="PlatformAPI.healthcheck"
+        )
+        return False
     
     async def upload_log(
         self,
@@ -367,48 +369,15 @@ class PlatformAPIClient:
         Returns:
             Response dictionary with status and message
         """
+        url = f"{self.platform_api_url}/api/v1/validator/upload_log"
+        logger.info(f"Uploading {file_type} file: {file_path}")
+        
+        # Read file content once (outside retry loop)
         try:
-            headers = self._build_auth_headers()
-            url = f"{self.platform_api_url}/api/v1/validator/upload_log"
-            logger.info(f"Uploading {file_type} file: {file_path}")
-            
-            # Read file content
             with open(file_path, 'rb') as f:
                 file_content = f.read()
-            
-            # Prepare multipart form data
-            form_data = aiohttp.FormData()
-            form_data.add_field('file', file_content, filename=os.path.basename(file_path), content_type='application/octet-stream')
-            form_data.add_field('file_type', file_type)
-            form_data.add_field('filename', os.path.basename(file_path))
-            form_data.add_field('file_size', str(len(file_content)))
-            
-            # Remove Content-Type from headers (aiohttp will set it with boundary)
-            upload_headers = {k: v for k, v in headers.items() if k.lower() != 'content-type'}
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=upload_headers, data=form_data) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        logger.info(f"Successfully uploaded {file_type} file: {os.path.basename(file_path)}")
-                        return data
-                    else:
-                        error_text = await response.text()
-                        error_msg = f"Failed to upload {file_type} file: {response.status} - {error_text}"
-                        logger.error(error_msg)
-                        await send_error_to_telegram(
-                            error_message=error_msg,
-                            hotkey=self.hotkey_address,
-                            context="PlatformAPI.upload_log",
-                            additional_info=f"File: {os.path.basename(file_path)}, Type: {file_type}"
-                        )
-                        return {
-                            "status": "error",
-                            "message": error_text,
-                        }
-                        
         except Exception as e:
-            error_msg = f"Error uploading {file_type} file: {str(e)}"
+            error_msg = f"Error reading file {file_path}: {str(e)}"
             logger.error(error_msg)
             await send_error_to_telegram(
                 error_message=error_msg,
@@ -418,6 +387,54 @@ class PlatformAPIClient:
             )
             return {
                 "status": "error",
-                "message": str(e),
+                "message": error_msg,
             }
+        
+        error_text = None
+        
+        # Retry 3 times
+        for i in range(3):
+            try:
+                headers = self._build_auth_headers()
+                
+                # Prepare multipart form data
+                form_data = aiohttp.FormData()
+                form_data.add_field('file', file_content, filename=os.path.basename(file_path), content_type='application/octet-stream')
+                form_data.add_field('file_type', file_type)
+                form_data.add_field('filename', os.path.basename(file_path))
+                form_data.add_field('file_size', str(len(file_content)))
+                
+                # Remove Content-Type from headers (aiohttp will set it with boundary)
+                upload_headers = {k: v for k, v in headers.items() if k.lower() != 'content-type'}
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, headers=upload_headers, data=form_data) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            logger.info(f"Successfully uploaded {file_type} file: {os.path.basename(file_path)}")
+                            return data
+                        else:
+                            error_text = await response.text()
+                            logger.warning(f"Failed to upload {file_type} file, retrying... ({i+1}/3): {response.status} - {error_text}")
+                            # Don't send telegram notification on retry, only after all retries fail
+                            await asyncio.sleep(1)
+                            
+            except Exception as e:
+                error_text = str(e)
+                logger.warning(f"Error uploading {file_type} file, retrying... ({i+1}/3): {error_text}")
+                await asyncio.sleep(1)
+        
+        # All retries failed, send telegram notification
+        error_msg = f"Failed to upload {file_type} file after 3 retries: {error_text}"
+        logger.error(error_msg)
+        await send_error_to_telegram(
+            error_message=error_msg,
+            hotkey=self.hotkey_address,
+            context="PlatformAPI.upload_log",
+            additional_info=f"File: {os.path.basename(file_path)}, Type: {file_type}"
+        )
+        return {
+            "status": "error",
+            "message": error_text,
+        }
 
