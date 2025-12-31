@@ -279,28 +279,34 @@ class PlatformAPIClient:
             headers = self._build_auth_headers()
             url = f"{self.platform_api_url}/api/v1/validator/weights"
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        weights = data.get("weights", {})
-                        logger.info(f"Fetched weights for {len(weights)} miners from platform")
-                        ## save response to file
-                        # os.makedirs("./outputs", exist_ok=True)
-                        # with open(f"./outputs/weights_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", "w") as f:
-                        #     json.dump(weights, f, indent=2)
-                        return weights
-                    else:
-                        error_text = await response.text()
-                        error_msg = f"Failed to get weights: {response.status} - {error_text}"
-                        logger.error(error_msg)
-                        await send_error_to_telegram(
-                            error_message=error_msg,
-                            hotkey=self.hotkey_address,
-                            context="PlatformAPI.get_weights"
-                        )
-                        return None
-                        
+            ## retry 3 times
+            error_text = None
+            for i in range(3):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, headers=headers) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                weights = data.get("weights", {})
+                                logger.info(f"Fetched weights for {len(weights)} miners from platform")
+                                return weights
+                            else:
+                                error_text = await response.text()
+                                logger.error(f"Failed to get weights, retrying... ({i+1}/3)")
+                                await asyncio.sleep(5)
+                except Exception as e:
+                    error_text = str(e)
+                    logger.error(f"Error getting weights: {error_text}")
+                    await asyncio.sleep(1)
+
+            error_msg = f"Failed to get weights after 3 retries: {error_text}"
+            logger.error(error_msg)
+            await send_error_to_telegram(
+                error_message=error_msg,
+                hotkey=self.hotkey_address,
+                context="PlatformAPI.get_weights"
+            )
+            return None
         except Exception as e:
             error_msg = f"Error getting weights: {str(e)}"
             logger.error(error_msg)
