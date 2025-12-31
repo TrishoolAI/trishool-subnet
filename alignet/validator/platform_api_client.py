@@ -21,6 +21,7 @@ sys.path.insert(0, project_root)
 from alignet.cli.bts_signature import load_wallet, build_pair_auth_payload
 from alignet import __spec_version__ as spec_version
 from alignet.utils.logging import get_logger
+from alignet.utils.telegram import send_error_to_telegram
 logger = get_logger()
 
 
@@ -32,6 +33,7 @@ class PlatformAPIClient:
         platform_api_url: str = "http://localhost:8000",
         coldkey_name: Optional[str] = None,
         hotkey_name: Optional[str] = None,
+        hotkey_address: Optional[str] = None,
         network: str = "finney",
         netuid: int = 23,
     ):
@@ -48,6 +50,7 @@ class PlatformAPIClient:
         self.platform_api_url = platform_api_url.rstrip('/')
         self.coldkey_name = coldkey_name
         self.hotkey_name = hotkey_name
+        self.hotkey_address = hotkey_address
         self.network = network
         self.netuid = netuid
         self.wallet = None
@@ -114,11 +117,24 @@ class PlatformAPIClient:
                         return None
                     else:
                         error_text = await response.text()
-                        logger.error(f"Failed to get evaluation agents: {response.status} - {error_text}")
+                        error_msg = f"Failed to get evaluation agents: {response.status} - {error_text}"
+                        logger.error(error_msg)
+                        await send_error_to_telegram(
+                            error_message=error_msg,
+                            hotkey=self.hotkey_address,
+                            context="PlatformAPI.get_evaluation_agents",
+                            additional_info=f"URL: {url}"
+                        )
                         return None
                         
         except Exception as e:
-            logger.error(f"Error fetching evaluation agents: {str(e)}")
+            error_msg = f"Error fetching evaluation agents: {str(e)}"
+            logger.error(error_msg)
+            await send_error_to_telegram(
+                error_message=error_msg,
+                hotkey=self.hotkey_address,
+                context="PlatformAPI.get_evaluation_agents"
+            )
             return None
     
     async def submit_scores(self, scores: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -152,7 +168,14 @@ class PlatformAPIClient:
                         return data
                     else:
                         error_text = await response.text()
-                        logger.error(f"Failed to submit scores: {response.status} - {error_text}")
+                        error_msg = f"Failed to submit scores: {response.status} - {error_text}"
+                        logger.error(error_msg)
+                        await send_error_to_telegram(
+                            error_message=error_msg,
+                            hotkey=self.hotkey_address,
+                            context="PlatformAPI.submit_scores",
+                            additional_info=f"Score count: {len(scores)}"
+                        )
                         return {
                             "status": "error",
                             "message": f"HTTP {response.status}: {error_text}",
@@ -161,7 +184,14 @@ class PlatformAPIClient:
                         }
                         
         except Exception as e:
-            logger.error(f"Error submitting scores: {str(e)}")
+            error_msg = f"Error submitting scores: {str(e)}"
+            logger.error(error_msg)
+            await send_error_to_telegram(
+                error_message=error_msg,
+                hotkey=self.hotkey_address,
+                context="PlatformAPI.submit_scores",
+                additional_info=f"Score count: {len(scores)}"
+            )
             return {
                 "status": "error",
                 "message": str(e),
@@ -207,16 +237,31 @@ class PlatformAPIClient:
                         else:
                             error_text = await response.text()
                             logger.error(f"Failed to submit Petri output, retrying... ({i+1}/3)")
+                            # Don't send telegram notification on retry, only after all retries fail
                             await asyncio.sleep(1)    
 
-                logger.error(f"Failed to submit Petri output: {error_text}")
+                error_msg = f"Failed to submit Petri output after 3 retries: {error_text}"
+                logger.error(error_msg)
+                await send_error_to_telegram(
+                    error_message=error_msg,
+                    hotkey=self.hotkey_address,
+                    context="PlatformAPI.submit_petri_output",
+                    additional_info=f"Submission ID: {submission_id}, Run ID: {petri_output.get('run_id', 'unknown')}"
+                )
                 return {
                     "status": "error",
                     "message": error_text,
                     "run_id": petri_output.get("run_id", "")
                 }
         except Exception as e:
-            logger.error(f"Error submitting Petri output: {str(e)}")
+            error_msg = f"Error submitting Petri output: {str(e)}"
+            logger.error(error_msg)
+            await send_error_to_telegram(
+                error_message=error_msg,
+                hotkey=self.hotkey_address,
+                context="PlatformAPI.submit_petri_output",
+                additional_info=f"Submission ID: {submission_id}"
+            )
             return {
                 "status": "error",
                 "message": str(e),
@@ -247,11 +292,23 @@ class PlatformAPIClient:
                         return weights
                     else:
                         error_text = await response.text()
-                        logger.error(f"Failed to get weights: {response.status} - {error_text}")
+                        error_msg = f"Failed to get weights: {response.status} - {error_text}"
+                        logger.error(error_msg)
+                        await send_error_to_telegram(
+                            error_message=error_msg,
+                            hotkey=self.hotkey_address,
+                            context="PlatformAPI.get_weights"
+                        )
                         return None
                         
         except Exception as e:
-            logger.error(f"Error getting weights: {str(e)}")
+            error_msg = f"Error getting weights: {str(e)}"
+            logger.error(error_msg)
+            await send_error_to_telegram(
+                error_message=error_msg,
+                hotkey=self.hotkey_address,
+                context="PlatformAPI.get_weights"
+            )
             return None
     
     async def healthcheck(self) -> bool:
@@ -280,6 +337,81 @@ class PlatformAPIClient:
                         return False
                         
         except Exception as e:
-            logger.error(f"Error sending healthcheck: {str(e)}")
+            error_msg = f"Error sending healthcheck: {str(e)}"
+            logger.error(error_msg)
+            await send_error_to_telegram(
+                error_message=error_msg,
+                hotkey=self.hotkey_address,
+                context="PlatformAPI.healthcheck"
+            )
             return False
+    
+    async def upload_log(
+        self,
+        file_path: str,
+        file_type: str,
+    ) -> Dict[str, Any]:
+        """
+        Upload a log file or transcript file to platform.
+        
+        Args:
+            file_path: Path to the file to upload
+            file_type: Type of file ("log" or "transcript")
+            
+        Returns:
+            Response dictionary with status and message
+        """
+        try:
+            headers = self._build_auth_headers()
+            url = f"{self.platform_api_url}/api/v1/validator/upload_log"
+            logger.info(f"Uploading {file_type} file: {file_path}")
+            
+            # Read file content
+            with open(file_path, 'rb') as f:
+                file_content = f.read()
+            
+            # Prepare multipart form data
+            form_data = aiohttp.FormData()
+            form_data.add_field('file', file_content, filename=os.path.basename(file_path), content_type='application/octet-stream')
+            form_data.add_field('file_type', file_type)
+            form_data.add_field('filename', os.path.basename(file_path))
+            form_data.add_field('file_size', str(len(file_content)))
+            
+            # Remove Content-Type from headers (aiohttp will set it with boundary)
+            upload_headers = {k: v for k, v in headers.items() if k.lower() != 'content-type'}
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=upload_headers, data=form_data) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        logger.info(f"Successfully uploaded {file_type} file: {os.path.basename(file_path)}")
+                        return data
+                    else:
+                        error_text = await response.text()
+                        error_msg = f"Failed to upload {file_type} file: {response.status} - {error_text}"
+                        logger.error(error_msg)
+                        await send_error_to_telegram(
+                            error_message=error_msg,
+                            hotkey=self.hotkey_address,
+                            context="PlatformAPI.upload_log",
+                            additional_info=f"File: {os.path.basename(file_path)}, Type: {file_type}"
+                        )
+                        return {
+                            "status": "error",
+                            "message": error_text,
+                        }
+                        
+        except Exception as e:
+            error_msg = f"Error uploading {file_type} file: {str(e)}"
+            logger.error(error_msg)
+            await send_error_to_telegram(
+                error_message=error_msg,
+                hotkey=self.hotkey_address,
+                context="PlatformAPI.upload_log",
+                additional_info=f"File: {file_path}, Type: {file_type}"
+            )
+            return {
+                "status": "error",
+                "message": str(e),
+            }
 

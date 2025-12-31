@@ -28,8 +28,11 @@ import re
 import threading
 import traceback
 import numpy as np
+import hashlib
+from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any
+
 
 # Add the project root directory to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,7 +51,7 @@ from alignet.validator.sandbox.sandbox_management import SandboxManager
 from alignet.validator.platform_api_client import PlatformAPIClient
 from alignet.validator.petri_commit_checker import PetriCommitChecker
 from alignet.models.submission import MinerSubmission, SubmissionStatus
-
+from alignet.utils.telegram import send_error_safe
 from alignet.utils.logging import get_logger
 logger = get_logger()
 
@@ -72,8 +75,6 @@ class Validator(BaseValidatorNeuron):
         logger.info("Loading Alignet Validator state...")
         self.load_state()
 
-        # Initialize components
-        self.sandbox_manager = SandboxManager()
         
         # Initialize REST API client for platform communication
         platform_api_url = os.getenv("PLATFORM_API_URL", "https://api.trishool.ai")
@@ -85,9 +86,12 @@ class Validator(BaseValidatorNeuron):
             platform_api_url=platform_api_url,
             coldkey_name=coldkey_name,
             hotkey_name=hotkey_name,
+            hotkey_address=self.wallet.hotkey.ss58_address,
             network=network,
             netuid=netuid
         )
+        # Initialize Sandbox Manager
+        self.sandbox_manager = SandboxManager(hotkey=self.wallet.hotkey.ss58_address)
         
         # Initialize Petri commit checker
         commit_check_interval = int(os.getenv("PETRI_COMMIT_CHECK_INTERVAL", "300"))  # 5 minutes default
@@ -98,7 +102,15 @@ class Validator(BaseValidatorNeuron):
         
         # State tracking
         self.active_submissions: Dict[str, MinerSubmission] = {}
-        self.active_sandboxes: Dict[str, str] = {}  # Map submission_id -> sandbox_id
+        self.active_sandboxes: Dict[str, str] = {}
+        
+        # Track uploaded files to avoid duplicates
+        self.uploaded_files: set = set()
+        self.uploaded_files_tracker_path = os.path.join(project_root, "logs", "uploaded_files.json")
+        self.max_file_size_mb = 50  # Maximum file size to upload in MB
+        # Track latest log file timestamp (for incremental upload)
+        self.latest_log_timestamp: Optional[datetime] = None
+        self._load_uploaded_files()
         
         # Configuration
         self.max_concurrent_sandboxes = int(os.getenv("MAX_CONCURRENT_SANDBOXES", "5"))
@@ -137,6 +149,10 @@ class Validator(BaseValidatorNeuron):
             self._start_weight_update_loop()
             await self._evaluation_loop()
             logger.info("Evaluation loop completed")
+            
+            # Upload log files and transcript files at the end of forward pass
+            await self._upload_logs_and_transcripts()
+            
             await asyncio.sleep(30)
                     
         except Exception as e:
@@ -182,6 +198,7 @@ class Validator(BaseValidatorNeuron):
                     # try:
                     #     if os.getenv("MAX_TURNS") is not None:
                     #         submission.max_turns = int(os.getenv("MAX_TURNS"))
+                    #         submission.models = submission.models[0]
                     # except Exception as e:
                     #     logger.error(f"Error setting max turns: {str(e)}")
                         
@@ -238,7 +255,7 @@ class Validator(BaseValidatorNeuron):
                 auditor=petri_config_response.get("auditor", ""),
                 judge=petri_config_response.get("judge", ""),
                 max_turns=petri_config_response.get("max_turns", 30),
-                output_dir="./outputs",
+                output_dir="outputs",
                 temp_dir="./temp",
                 cleanup=False,
                 json_output="output.json",
@@ -487,6 +504,13 @@ class Validator(BaseValidatorNeuron):
                 logger.warning(
                     f"Petri evaluation returned error status for submission {submission.submission_id}: {error_message}"
                 )
+                # Send error to Telegram
+                send_error_safe(
+                    error_message=error_message,
+                    hotkey=self.wallet.hotkey.ss58_address,
+                    context="Validator._execute_petri_evaluation",
+                    additional_info=f"Submission: {submission.submission_id}"
+                )
                 submission.update_status(SubmissionStatus.FAILED)
                 submission.petri_output_json = output_json
                 await self._submit_failed_evaluation(submission, error_message, sandbox_result.get("logs"))
@@ -727,6 +751,261 @@ class Validator(BaseValidatorNeuron):
         except Exception as e:
             logger.error(f"Error applying platform weights to scores: {str(e)}")
     
+    def _load_uploaded_files(self):
+        """Load list of already uploaded files and latest log timestamp from tracker file."""
+        try:
+            if os.path.exists(self.uploaded_files_tracker_path):
+                with open(self.uploaded_files_tracker_path, 'r') as f:
+                    data = json.load(f)
+                    self.uploaded_files = set(data.get('uploaded_files', []))
+                    # Load latest log timestamp
+                    latest_timestamp_str = data.get('latest_log_timestamp')
+                    if latest_timestamp_str:
+                        try:
+                            self.latest_log_timestamp = datetime.fromisoformat(latest_timestamp_str)
+                            logger.info(f"Loaded latest log timestamp: {self.latest_log_timestamp}")
+                        except Exception as e:
+                            logger.warning(f"Failed to parse latest log timestamp: {e}")
+                            self.latest_log_timestamp = None
+                    logger.info(f"Loaded {len(self.uploaded_files)} previously uploaded files")
+        except Exception as e:
+            logger.warning(f"Failed to load uploaded files tracker: {e}")
+            self.uploaded_files = set()
+            self.latest_log_timestamp = None
+    
+    def _save_uploaded_files(self):
+        """Save list of uploaded files and latest log timestamp to tracker file."""
+        try:
+            os.makedirs(os.path.dirname(self.uploaded_files_tracker_path), exist_ok=True)
+            data = {
+                'uploaded_files': list(self.uploaded_files),
+            }
+            if self.latest_log_timestamp:
+                data['latest_log_timestamp'] = self.latest_log_timestamp.isoformat()
+            with open(self.uploaded_files_tracker_path, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save uploaded files tracker: {e}")
+    
+    def _get_file_hash(self, file_path: Path) -> str:
+        """Calculate SHA256 hash of file."""
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+    
+    def _get_file_key(self, file_path: Path) -> str:
+        """Generate a unique key for a file (path + hash)."""
+        file_hash = self._get_file_hash(file_path)
+        return f"{file_path.absolute()}:{file_hash}"
+    
+    def _should_upload_file(self, file_path: Path) -> bool:
+        """Check if file should be uploaded."""
+        if not file_path.exists():
+            return False
+        
+        # Check file size (max 50MB)
+        file_size = file_path.stat().st_size
+        max_size_bytes = self.max_file_size_mb * 1024 * 1024
+        if file_size > max_size_bytes:
+            logger.warning(f"File {file_path.name} is too large ({file_size / 1024 / 1024:.2f}MB), skipping")
+            return False
+        
+        # Check if already uploaded
+        file_key = self._get_file_key(file_path)
+        if file_key in self.uploaded_files:
+            return False
+        
+        return True
+    
+    def _extract_timestamp_from_log_filename(self, filename: str) -> Optional[datetime]:
+        """
+        Extract timestamp from log filename.
+        Formats:
+        - events.log (current file, use file modification time)
+        - events_2025-12-30_14-30-00.log (timestamp-based backup from RotatingFileHandler)
+        
+        Returns:
+            datetime object or None if cannot extract
+        """
+        try:
+            # Try to extract timestamp from filename: events_YYYY-MM-DD_HH-MM-SS.log
+            # This matches the format created by _timestamp_namer in logging.py
+            if '_' in filename and filename.endswith('.log'):
+                # Remove .log extension
+                name_without_ext = filename[:-4]
+                # Split by underscore
+                parts = name_without_ext.split('_')
+                if len(parts) >= 3:
+                    # Format: events_YYYY-MM-DD_HH-MM-SS
+                    # parts = ['events', '2025-12-30', '14-30-00']
+                    # Combine last two parts: YYYY-MM-DD_HH-MM-SS
+                    date_time_str = f"{parts[-2]}_{parts[-1]}"
+                    try:
+                        return datetime.strptime(date_time_str, "%Y-%m-%d_%H-%M-%S")
+                    except ValueError:
+                        pass
+                elif len(parts) >= 2:
+                    # Fallback: try to parse as date only: YYYY-MM-DD
+                    # This handles old format or edge cases
+                    date_str = parts[-1]
+                    try:
+                        return datetime.strptime(date_str, "%Y-%m-%d")
+                    except ValueError:
+                        pass
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to extract timestamp from {filename}: {e}")
+            return None
+    
+    def _find_log_files(self) -> List[Path]:
+        """
+        Find log files in logs directory that need to be uploaded.
+        Only returns files with timestamp after latest_log_timestamp.
+        """
+        log_files = []
+        # Use project_root from module level
+        logs_dir = Path(project_root) / "logs"
+        if not logs_dir.exists():
+            logger.debug(f"Logs directory does not exist: {logs_dir}")
+            return log_files
+        
+        # Find all .log files
+        for log_file in logs_dir.rglob("*.log"):
+            if not log_file.is_file():
+                continue
+
+            ## check if file is events.log, if so, skip
+            if log_file.name == "events.log":
+                continue
+            
+            # Check file size
+            file_size = log_file.stat().st_size
+            max_size_bytes = self.max_file_size_mb * 1024 * 1024
+            if file_size > max_size_bytes:
+                logger.warning(f"File {log_file.name} is too large ({file_size / 1024 / 1024:.2f}MB), skipping")
+                continue
+            
+            # Extract timestamp from filename
+            file_timestamp = self._extract_timestamp_from_log_filename(log_file.name)
+            
+            # If no timestamp in filename, use file modification time
+            if file_timestamp is None:
+                file_timestamp = datetime.fromtimestamp(log_file.stat().st_mtime)
+            
+            # Only upload if timestamp is after latest_log_timestamp
+            if self.latest_log_timestamp is None or file_timestamp > self.latest_log_timestamp:
+                log_files.append(log_file)
+            else:
+                logger.debug(f"Skipping log file {log_file.name} (timestamp: {file_timestamp} <= latest: {self.latest_log_timestamp})")
+        
+        # Sort by timestamp to process in order
+        log_files.sort(key=lambda f: self._extract_timestamp_from_log_filename(f.name) or 
+                      datetime.fromtimestamp(f.stat().st_mtime))
+        
+        return log_files
+    
+    def _find_transcript_files(self) -> List[Path]:
+        """Find all transcript files in transcripts directory."""
+        transcript_files = []
+        # Use project_root from module level
+        transcripts_dir = Path(project_root) / "transcripts"
+        if not transcripts_dir.exists():
+            logger.debug(f"Transcripts directory does not exist: {transcripts_dir}")
+            return transcript_files
+        
+        # Find all .json files in transcripts directory
+        for transcript_file in transcripts_dir.glob("*.json"):
+            if not transcript_file.is_file():
+                continue
+            
+            # Check file size
+            file_size = transcript_file.stat().st_size
+            max_size_bytes = self.max_file_size_mb * 1024 * 1024
+            if file_size > max_size_bytes:
+                logger.warning(f"File {transcript_file.name} is too large ({file_size / 1024 / 1024:.2f}MB), skipping")
+                continue
+            
+            transcript_files.append(transcript_file)
+        
+        return transcript_files
+    
+    async def _upload_logs_and_transcripts(self):
+        """
+        Upload log files and transcript files to platform API.
+        
+        - Transcript files: deleted immediately after successful upload
+        - Log files: only upload files with timestamp after latest_log_timestamp,
+          update latest_log_timestamp after successful upload
+        """
+        try:
+            logger.info("Starting log and transcript upload...")
+            
+            # Find files to upload
+            log_files = self._find_log_files()
+            transcript_files = self._find_transcript_files()
+            
+            log_uploaded = 0
+            transcript_uploaded = 0
+            latest_timestamp = self.latest_log_timestamp
+            
+            # Upload log files
+            for log_file in log_files:
+                try:
+                    result = await self.api_client.upload_log(str(log_file), "log")
+                    if result.get("status") == "success":
+                        # Extract timestamp from filename or use file modification time
+                        file_timestamp = self._extract_timestamp_from_log_filename(log_file.name)
+                        if file_timestamp is None:
+                            file_timestamp = datetime.fromtimestamp(log_file.stat().st_mtime)
+                        
+                        # Update latest timestamp
+                        if latest_timestamp is None or file_timestamp > latest_timestamp:
+                            latest_timestamp = file_timestamp
+                        
+                        log_uploaded += 1
+                        logger.info(f"Uploaded log file: {log_file.name} (timestamp: {file_timestamp})")
+                    else:
+                        logger.warning(f"Failed to upload log file {log_file.name}: {result.get('message', 'Unknown error')}")
+                except Exception as e:
+                    logger.warning(f"Failed to upload log file {log_file.name}: {e}")
+            
+            # Update latest log timestamp if we uploaded any logs
+            if log_uploaded > 0 and latest_timestamp:
+                self.latest_log_timestamp = latest_timestamp
+                logger.info(f"Updated latest log timestamp to: {latest_timestamp}")
+            
+            # Upload transcript files (delete after successful upload)
+            for transcript_file in transcript_files:
+                try:
+                    result = await self.api_client.upload_log(str(transcript_file), "transcript")
+                    if result.get("status") == "success":
+                        transcript_uploaded += 1
+                        logger.info(f"Uploaded transcript file: {transcript_file.name}")
+                        
+                        # Delete transcript file immediately after successful upload
+                        try:
+                            transcript_file.unlink()
+                            logger.info(f"Deleted transcript file: {transcript_file.name}")
+                        except Exception as e:
+                            logger.warning(f"Failed to delete transcript file {transcript_file.name}: {e}")
+                    else:
+                        logger.warning(f"Failed to upload transcript file {transcript_file.name}: {result.get('message', 'Unknown error')}")
+                except Exception as e:
+                    logger.warning(f"Failed to upload transcript file {transcript_file.name}: {e}")
+            
+            # Save uploaded files tracker (with latest log timestamp)
+            if log_uploaded > 0 or transcript_uploaded > 0:
+                self._save_uploaded_files()
+                logger.info(f"Uploaded {log_uploaded + transcript_uploaded} file(s) (logs: {log_uploaded}, transcripts: {transcript_uploaded})")
+            else:
+                logger.debug("No new files to upload")
+                
+        except Exception as e:
+            logger.error(f"Error uploading logs and transcripts: {e}")
+            # Don't raise, just log the error
+    
     async def _cleanup(self) -> None:
         """Cleanup resources."""
         try:
@@ -774,7 +1053,7 @@ class Validator(BaseValidatorNeuron):
             "auditor": "openai-api/chutes/Qwen/Qwen4-32B",
             "judge": "openai-api/chutes/Qwen/Qwen3-32B",
             "max_turns": 3,
-            "output_dir": "./outputs",
+            "output_dir": "outputs",
             "temp_dir": "./temp",
             "cleanup": False,
             "json_output": "output.json",

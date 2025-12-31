@@ -64,7 +64,7 @@ def _build_submission(
     auditor: str,
     judge: str,
     max_turns: int,
-    output_dir: str = "./outputs",
+    output_dir: str = "outputs",
     temp_dir: str = "./temp",
     cleanup: bool = False,
     json_output: Optional[str] = None,
@@ -82,7 +82,7 @@ def _build_submission(
         auditor: Auditor model
         judge: Judge model
         max_turns: Maximum conversation turns
-        output_dir: Output directory (default: "./outputs")
+        output_dir: Output directory (default: "outputs")
         temp_dir: Temp directory (default: "./temp")
         cleanup: Cleanup flag (default: False)
         json_output: JSON output filename (default: None, will use run_id.json)
@@ -172,7 +172,7 @@ Examples:
     auditor = args.auditor or config.get("auditor", "openai-api/chutes/Qwen/Qwen3-32B")
     judge = args.judge or config.get("judge", "openai-api/chutes/Qwen/Qwen3-32B")
     max_turns = args.max_turns if args.max_turns is not None else config.get("max_turns", 5)
-    output_dir = config.get("output_dir", "./outputs")
+    output_dir = config.get("output_dir", "outputs")
     temp_dir = config.get("temp_dir", "./temp")
     cleanup = config.get("cleanup", False)
     json_output = config.get("json_output")
@@ -183,7 +183,7 @@ Examples:
     miner_id = args.miner_id or "test_miner_001"
 
     # Initialize sandbox manager
-    sandbox_manager = SandboxManager()
+    sandbox_manager = SandboxManager(hotkey=args.miner_hotkey)
     commit_checker = PetriCommitChecker(
         sandbox_manager=sandbox_manager,
         check_interval=300

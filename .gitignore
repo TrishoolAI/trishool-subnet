@@ -35,3 +35,4 @@ validator.config.js
 repo-auto-updater.config.js
 tmp/
 test_submission
+transcripts/

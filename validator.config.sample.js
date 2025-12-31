@@ -31,6 +31,8 @@ module.exports = {
         SKIP_BUILD_IMAGE: false,
         PETRI_COMMIT_CHECK_INTERVAL: 300,  // Interval to check commits (seconds, default 5 minutes)
         GITHUB_TOKEN: "", // Your GitHub token for higher rate limits
+        TELEGRAM_BOT_TOKEN: "", // Telegram bot token for sending errors to Telegram
+        TELEGRAM_CHANNEL_ID: "", // Telegram channel ID for sending errors to Telegram
       },
       args: ["--netuid", "23", "--subtensor.network", "finney", "--wallet.name", "your_wallet_name", "--wallet.hotkey", "your_hotkey_name"],
     }
