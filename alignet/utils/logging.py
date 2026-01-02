@@ -5,7 +5,7 @@ from datetime import datetime
 
 EVENTS_LEVEL_NUM = 38
 DEFAULT_LOG_BACKUP_COUNT = 10
-DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10MB
+DEFAULT_MAX_BYTES = 1 * 1024 * 1024  # 1MB
 
 logger = None
 
