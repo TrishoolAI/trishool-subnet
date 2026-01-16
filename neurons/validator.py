@@ -116,7 +116,7 @@ class Validator(BaseValidatorNeuron):
         self.max_concurrent_sandboxes = int(os.getenv("MAX_CONCURRENT_SANDBOXES", "5"))
         self.evaluation_interval = int(os.getenv("EVALUATION_INTERVAL", "30"))  # seconds
         self.random_selection_count = int(os.getenv("RANDOM_SELECTION_COUNT", "3"))  # Number of submissions to select randomly
-        self.update_weights_interval = int(os.getenv("UPDATE_WEIGHTS_INTERVAL", "120"))  # 2 minutes default
+        self.update_weights_interval = 120  # 2 minutes default
         
         # Weight update loop state
         self.weight_update_task: Optional[asyncio.Task] = None
