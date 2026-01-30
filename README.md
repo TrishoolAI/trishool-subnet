@@ -139,7 +139,7 @@ Miners submit **seed instructions** (prompts) via the platform API. The platform
 6. Your score is based on the Petri evaluation results
 
 **Testing locally:**
-Miners can test their seed instructions locally using Petri before submission. See the Petri documentation at `trishool/validator/sandbox/petri/PETRI_README.md` or the astro-petri repository at https://github.com/Trishool/astro-petri for details on running Petri locally.
+Miners can test their seed instructions locally using Petri before submission. See the Petri documentation at `trishool/validator/sandbox/petri/PETRI_README.md` or the astro-petri repository at https://github.com/TrishoolAI/astro-petri for details on running Petri locally.
 
 ## Key Features
 
